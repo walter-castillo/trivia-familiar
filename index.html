@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Trivia Familiar</title>
+<meta name="theme-color" content="#0e1a40">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Trivia">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<style>
+:root{--bg:#0e1a40;--ink:#14204a;--mut:#9fb0e8;--hot:#ff5a3c;--sun:#ffd23f;--ok:#17b890;--bad:#e5384f}
+*{box-sizing:border-box}
+body{margin:0;min-height:100dvh;display:flex;flex-direction:column;background:var(--bg);color:#fff;font:16px/1.4 "Avenir Next","Trebuchet MS",system-ui,sans-serif;padding:env(safe-area-inset-top) 0 0}
+main{flex:1;width:100%;max-width:620px;margin:0 auto;padding:16px}
+h1{font-size:2.3rem;font-weight:900;letter-spacing:-1px;margin:.2em 0 .4em;line-height:1}
+h1 em{font-style:normal;color:var(--sun)}
+h2{margin:.2em 0 .5em;font-size:1.3rem}
+.card{background:#fff;color:var(--ink);border-radius:18px;padding:14px;margin:12px 0}
+.card b.t{display:block;margin-bottom:6px}
+button,select,input{font:inherit}
+.btn{display:block;width:100%;border:0;border-bottom:4px solid #b83a22;border-radius:14px;padding:14px;margin-top:10px;font-weight:800;background:var(--hot);color:#fff;cursor:pointer}
+.btn.sec{background:#2a3f8f;border-bottom-color:#18275f}
+.btn:active{transform:translateY(2px);border-bottom-width:2px}
+.row{display:flex;gap:8px;align-items:center}
+.row.sb{justify-content:space-between}
+input[type=text],select{background:#eef1fb;color:var(--ink);border:2px solid #c9d2f3;border-radius:10px;padding:10px;min-width:0}
+input[type=text]{flex:1}
+input[type=checkbox]{width:20px;height:20px;accent-color:var(--hot)}
+.add{width:auto;margin:0;padding:11px 16px}
+.chip{display:inline-flex;gap:6px;align-items:center;background:#eef1fb;border-radius:99px;padding:6px 12px;margin:3px}
+.chip button{border:0;background:#c9d2f3;color:var(--ink);border-radius:50%;width:24px;height:24px;cursor:pointer}
+label.set{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:10px 0}
+.tag{display:inline-block;padding:3px 12px;border-radius:99px;font-weight:800;color:var(--ink)}
+.opt{display:block;width:100%;text-align:left;padding:14px;margin:9px 0;border-radius:14px;border:0;border-bottom:4px solid #c9d2f3;background:#fff;color:var(--ink);font-weight:700;cursor:pointer}
+.opt.ok{background:var(--ok);color:#fff;border-bottom-color:#0c7d63}
+.opt.bad{background:var(--bad);color:#fff;border-bottom-color:#9d1d30}
+.clock{font-size:5.5rem;font-weight:900;text-align:center;line-height:1;color:var(--sun);font-variant-numeric:tabular-nums}
+.clock.low{color:var(--hot)}
+.bar{height:10px;background:#1d2d6b;border-radius:99px;overflow:hidden;margin:8px 0}
+.bar i{display:block;height:100%;width:100%;background:var(--sun)}
+.num{font-size:3rem;font-weight:900;text-align:center;line-height:1}
+.win{outline:4px solid var(--sun)}
+.mut{color:var(--mut);font-size:.9rem}
+footer{text-align:center;padding:14px 14px calc(14px + env(safe-area-inset-bottom));color:var(--mut);font-size:.9rem}
+</style>
+</head>
+<body>
+<main id="app"></main>
+<footer>by Walter Castillo</footer>
+<script>
+const GC=['#ffd23f','#5be3c1','#ff8fa3','#8ab4ff','#c9a0ff','#ffa95c'];
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const rnd=n=>{const a=new Uint32Array(1);crypto.getRandomValues(a);return a[0]%n};
+const shuf=a=>{a=a.slice();for(let i=a.length-1;i>0;i--){const j=rnd(i+1);[a[i],a[j]]=[a[j],a[i]]}return a};
+const store={get:(k,d)=>{try{const v=JSON.parse(localStorage.getItem(k));return v==null?d:v}catch{return d}},set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch{}}};
+const S={scr:'home',players:store.get('tp',[]),ng:2,mode:'azar',manual:[],cfg:{n:10,t:30,snd:true,cats:null},cats:[],catErr:0,groups:[],order:[],nums:[],msg:'',retry:0};
+let G=null,timer=null,AC=null;
+const app=$('#app');
+
+/* sonido */
+function unlock(){if(!S.cfg.snd)return;try{AC=AC||new(window.AudioContext||window.webkitAudioContext)();if(AC.state==='suspended')AC.resume()}catch{}}
+function beep(f,d,v=.2){if(!S.cfg.snd||!AC)return;try{const o=AC.createOscillator(),g=AC.createGain();o.type='triangle';o.frequency.value=f;g.gain.value=v;o.connect(g);g.connect(AC.destination);o.start();g.gain.exponentialRampToValueAtTime(.001,AC.currentTime+d);o.stop(AC.currentTime+d)}catch{}}
+
+/* banco: se consulta cada vez que se necesita */
+async function loadBank(){
+  const r=await fetch('preguntas.json',{cache:'no-store'});
+  if(!r.ok)throw new Error('http');
+  const b=await r.json();
+  return b.filter(q=>q&&q.pregunta&&Array.isArray(q.opciones)&&q.opciones.length>1&&q.opciones[q.correcta]!==undefined);
+}
+function fetchCats(){
+  S.cats=[];S.catErr=0;paintCats();
+  loadBank().then(b=>{S.cats=[...new Set(b.map(q=>q.categoria))].sort();paintCats()}).catch(()=>{S.catErr=1;paintCats()});
+}
+function paintCats(){
+  const el=$('#cats');if(!el)return;
+  if(S.catErr){el.innerHTML='<span class="mut">No se pudo consultar el banco de preguntas.</span><button class="btn sec" data-a="retry">Reintentar</button>';return}
+  if(!S.cats.length){el.innerHTML='<span class="mut">Consultando preguntas…</span>';return}
+  el.innerHTML=S.cats.map(c=>`<label class="chip"><input type="checkbox" data-k="cat" value="${esc(c)}" ${!S.cfg.cats||S.cfg.cats.includes(c)?'checked':''}> ${esc(c)}</label>`).join('');
+}
+
+/* pantallas */
+const sel=(k,opts,cur)=>`<select data-k="${k}">${opts.map(([v,l])=>`<option value="${v}"${v==cur?' selected':''}>${l}</option>`).join('')}</select>`;
+function home(){
+  const chips=S.players.map((p,i)=>`<span class="chip">${esc(p)}<button data-a="del" data-i="${i}" aria-label="Quitar ${esc(p)}">×</button></span>`).join('');
+  return `<h1>Trivia <em>Familiar</em></h1>
+  <div class="card"><b class="t">Jugadores</b>
+    <div class="row"><input type="text" id="nm" placeholder="Nombre" maxlength="20" autocomplete="off"><button class="btn add" data-a="add">Agregar</button></div>
+    <div>${chips||'<span class="mut">Agregá al menos dos jugadores.</span>'}</div></div>
+  <div class="card"><b class="t">Partida</b>
+    <label class="set">Cantidad de grupos${sel('ng',[2,3,4,5,6].map(x=>[x,x]),S.ng)}</label>
+    <label class="set">Armar grupos${sel('mode',[['azar','Al azar'],['manual','Manualmente']],S.mode)}</label>
+    <label class="set">Preguntas${sel('n',[5,10,15,20,30].map(x=>[x,x]),S.cfg.n)}</label>
+    <label class="set">Tiempo por pregunta${sel('t',[[0,'Sin tiempo'],[15,'15 s'],[30,'30 s'],[45,'45 s'],[60,'60 s'],[90,'90 s']],S.cfg.t)}</label>
+    <label class="set">Sonido <input type="checkbox" data-k="snd" ${S.cfg.snd?'checked':''}></label></div>
+  <div class="card"><b class="t">Categorías</b><div id="cats"></div></div>
+  <button class="btn" data-a="next">Armar grupos</button>
+  <button class="btn sec" data-a="stats">Estadísticas</button>`;
+}
+function groups(){
+  if(S.mode==='azar')return `<h2>Grupos</h2>`+S.groups.map((g,i)=>`<div class="card"><span class="tag" style="background:${GC[i]}">${esc(g.name)}</span><p>${g.players.map(p=>esc(S.players[p])).join(', ')}</p></div>`).join('')+
+    `<button class="btn sec" data-a="mix">Mezclar de nuevo</button><button class="btn" data-a="draw">Sortear quién empieza</button><button class="btn sec" data-a="home">Volver</button>`;
+  return `<h2>Elegí el grupo de cada uno</h2><div class="card">`+S.players.map((p,i)=>`<label class="set">${esc(p)}<select data-k="man" data-p="${i}">${Array.from({length:S.ng},(_,g)=>`<option value="${g}"${S.manual[i]==g?' selected':''}>Grupo ${g+1}</option>`).join('')}</select></label>`).join('')+
+    `</div><button class="btn" data-a="draw">Sortear quién empieza</button><button class="btn sec" data-a="home">Volver</button>`;
+}
+function draw(){
+  const w=S.order[0];
+  return `<h2>Sorteo</h2>`+S.groups.map((g,i)=>`<div class="card ${i===w?'win':''}"><div class="row sb"><span class="tag" style="background:${GC[i]}">${esc(g.name)}</span><span class="num">${S.nums[i]}</span></div></div>`).join('')+
+    `<p><b>Empieza ${esc(S.groups[w].name)}.</b> <span class="mut">Los turnos siguen de mayor a menor número.</span></p>
+    <button class="btn" data-a="start">¡Comenzar!</button><button class="btn sec" data-a="redraw">Sortear de nuevo</button><button class="btn sec" data-a="groups">Cambiar grupos</button>`;
+}
+function turn(){const gi=S.order[G.i%S.order.length];const g=S.groups[gi];return{gi,g,p:S.players[g.players[G.pi[gi]%g.players.length]]}}
+function board(){return `<p class="mut">${S.groups.map((g,i)=>`${esc(g.name)}: <b style="color:#fff">${G.sc[i]}</b>`).join(' · ')}</p>`}
+function play(){
+  const q=G.qs[G.i],{gi,g,p}=turn(),a=G.ans;
+  const opts=q.o.map((o,i)=>`<button class="opt ${a!=null?(o.ok?'ok':(i===a?'bad':'')):''}" data-a="ans" data-i="${i}" ${a!=null?'disabled':''}>${esc(o.t)}</button>`).join('');
+  const fb=a==null?'':`<div class="card"><b>${a===-1?'Se acabó el tiempo.':(q.o[a].ok?'¡Correcto! +10 puntos':'Incorrecto.')}</b><br>Respuesta: ${esc(q.respuesta||q.o.find(o=>o.ok).t)}</div><button class="btn" data-a="nxt">${G.i+1>=G.qs.length?'Ver resultados':'Siguiente'}</button>`;
+  return `<div class="row sb"><span class="tag" style="background:${GC[gi]}">${esc(g.name)}</span><span class="mut">Pregunta ${G.i+1} de ${G.qs.length}</span></div>
+  <p>Responde <b>${esc(p)}</b></p>
+  ${a==null&&S.cfg.t?`<div class="clock" id="clk">${S.cfg.t}</div><div class="bar"><i id="bar"></i></div>`:''}
+  <div class="card"><b>${esc(q.pregunta)}</b></div>${opts}${fb}${board()}
+  ${a==null?'<button class="btn sec" data-a="quit">Terminar partida</button>':''}`;
+}
+function end(){
+  const mx=Math.max(...G.sc),win=S.groups.filter((_,i)=>G.sc[i]===mx);
+  const rank=S.groups.map((g,i)=>({g,i})).sort((a,b)=>G.sc[b.i]-G.sc[a.i]);
+  const st=i=>{const l=G.log.filter(x=>x.g===i);const ok=l.filter(x=>x.ok).length;const t=l.length?Math.round(l.reduce((s,x)=>s+x.ms,0)/l.length/100)/10:0;return `${ok}/${l.length} aciertos · ${t} s promedio`};
+  const pl={};G.log.forEach(x=>{(pl[x.p]=pl[x.p]||{ok:0,t:0});pl[x.p].t++;if(x.ok)pl[x.p].ok++});
+  return `<h1>${win.length>1?'¡Empate!':'¡Ganó <em>'+esc(win[0].name)+'</em>!'}</h1>`+
+  rank.map(({g,i})=>`<div class="card"><div class="row sb"><span class="tag" style="background:${GC[i]}">${esc(g.name)}</span><b>${G.sc[i]} pts</b></div><span class="mut" style="color:#5a6aa5">${st(i)}</span></div>`).join('')+
+  `<div class="card"><b class="t">Por jugador</b>${Object.entries(pl).map(([n,v])=>`${esc(n)}: ${v.ok}/${v.t}`).join('<br>')||'—'}</div>
+  <button class="btn" data-a="again">Jugar otra vez</button><button class="btn sec" data-a="home">Inicio</button>`;
+}
+function stats(){
+  const h=store.get('hist',[]),ps=store.get('ps',{});
+  const rk=Object.entries(ps).sort((a,b)=>b[1].ok/b[1].t-a[1].ok/a[1].t);
+  return `<h2>Estadísticas</h2><div class="card"><b class="t">Partidas jugadas: ${h.length}</b>${h.slice(-10).reverse().map(x=>`${new Date(x.d).toLocaleDateString('es-AR')} · ${esc(x.w)} (${x.p} pts)`).join('<br>')||'Todavía no hay partidas.'}</div>
+  <div class="card"><b class="t">Ranking de jugadores</b>${rk.map(([n,v])=>`${esc(n)}: ${Math.round(v.ok/v.t*100)}% (${v.ok}/${v.t})`).join('<br>')||'—'}</div>
+  <button class="btn sec" data-a="home">Volver</button><button class="btn sec" data-a="clear">Borrar historial</button>`;
+}
+
+/* flujo */
+function render(){
+  clearInterval(timer);
+  const f={home,groups,draw,play,end,stats}[S.scr];
+  app.innerHTML=(S.msg?`<div class="card" style="border:3px solid var(--bad)">${esc(S.msg)}${S.retry?'<button class="btn sec" data-a="retry">Reintentar</button>':''}</div>`:'')+f();
+  if(S.scr==='home')paintCats();
+  if(S.scr==='play'&&G.ans==null&&S.cfg.t)startTimer();
+  window.scrollTo(0,0);
+}
+const go=s=>{S.scr=s;S.msg='';S.retry=0;render()};
+function mkGroups(){
+  const gs=Array.from({length:S.ng},(_,i)=>({name:'Grupo '+(i+1),players:[]}));
+  if(S.mode==='azar')shuf(S.players.map((_,i)=>i)).forEach((p,i)=>gs[i%S.ng].players.push(p));
+  else S.players.forEach((_,i)=>gs[S.manual[i]].players.push(i));
+  S.groups=gs;
+}
+function doDraw(){
+  S.nums=shuf(Array.from({length:100},(_,i)=>i+1)).slice(0,S.groups.length);
+  S.order=S.groups.map((_,i)=>i).sort((a,b)=>S.nums[b]-S.nums[a]);
+}
+async function start(){
+  try{
+    let b=await loadBank();
+    if(S.cfg.cats)b=b.filter(q=>S.cfg.cats.includes(q.categoria));
+    if(!b.length){S.msg='No hay preguntas en las categorías elegidas.';S.retry=0;return render()}
+    let seen=store.get('seen',[]),pool=b.filter(q=>!seen.includes(q.id));
+    if(pool.length<S.cfg.n){pool=b;seen=[]}
+    const qs=shuf(pool).slice(0,S.cfg.n).map(q=>({...q,o:shuf(q.opciones.map((t,i)=>({t,ok:i===q.correcta})))}));
+    store.set('seen',seen.concat(qs.map(q=>q.id)));
+    G={qs,i:0,pi:S.groups.map(()=>0),sc:S.groups.map(()=>0),log:[],ans:null,saved:0};
+    S.scr='play';S.msg='';render();
+  }catch{S.msg='No se pudo consultar el banco de preguntas. Revisá tu conexión.';S.retry=1;render()}
+}
+function startTimer(){
+  const T=S.cfg.t;G.t0=performance.now();G.last=T+1;
+  timer=setInterval(()=>{
+    const left=T-(performance.now()-G.t0)/1000,c=Math.ceil(left);
+    const clk=$('#clk'),bar=$('#bar');
+    if(clk){clk.textContent=Math.max(c,0);clk.classList.toggle('low',left<=5)}
+    if(bar)bar.style.width=Math.max(left/T*100,0)+'%';
+    if(c!==G.last&&left>0){G.last=c;left<=5?beep(1300,.08,.3):beep(c%2?900:650,.05)}
+    if(left<=0){beep(200,.8,.35);answer(-1)}
+  },100);
+}
+function answer(i){
+  if(G.ans!=null)return;
+  clearInterval(timer);
+  const q=G.qs[G.i],{gi,p}=turn(),ok=i>=0&&q.o[i].ok;
+  const ms=S.cfg.t?Math.min(performance.now()-G.t0,S.cfg.t*1000):0;
+  G.ans=i;if(ok)G.sc[gi]+=10;
+  G.log.push({g:gi,p,ok,ms});
+  render();
+}
+function finish(){
+  if(!G.saved){
+    G.saved=1;
+    const mx=Math.max(...G.sc),wi=G.sc.indexOf(mx);
+    const h=store.get('hist',[]);h.push({d:Date.now(),w:S.groups[wi].name,p:mx});store.set('hist',h.slice(-50));
+    const ps=store.get('ps',{});G.log.forEach(x=>{ps[x.p]=ps[x.p]||{ok:0,t:0};ps[x.p].t++;if(x.ok)ps[x.p].ok++});store.set('ps',ps);
+  }
+  go('end');
+}
+const save=()=>store.set('tp',S.players);
+function act(a,d){
+  switch(a){
+    case 'add':{const el=$('#nm'),v=el.value.trim();if(v){S.players.push(v);save();render();$('#nm').focus()}break}
+    case 'del':S.players.splice(+d.i,1);save();render();break;
+    case 'next':
+      if(S.players.length<Math.max(2,S.ng)){S.msg='Necesitás al menos '+Math.max(2,S.ng)+' jugadores para '+S.ng+' grupos.';return render()}
+      S.manual=S.players.map((_,i)=>i%S.ng);mkGroups();go('groups');break;
+    case 'mix':mkGroups();render();break;
+    case 'groups':go('groups');break;
+    case 'draw':
+      if(S.mode==='manual'){mkGroups();if(S.groups.some(g=>!g.players.length)){S.msg='Cada grupo necesita al menos un jugador.';return render()}}
+      doDraw();go('draw');break;
+    case 'redraw':doDraw();render();break;
+    case 'start':start();break;
+    case 'retry':S.scr==='home'?fetchCats():start();break;
+    case 'ans':answer(+d.i);break;
+    case 'nxt':G.pi[turn().gi]++;G.i++;G.ans=null;G.i>=G.qs.length?finish():render();break;
+    case 'quit':if(confirm('¿Terminar la partida ahora?'))finish();break;
+    case 'again':doDraw();go('draw');break;
+    case 'stats':go('stats');break;
+    case 'clear':if(confirm('¿Borrar todo el historial?')){store.set('hist',[]);store.set('ps',{});store.set('seen',[]);render()}break;
+    case 'home':go('home');break;
+  }
+}
+app.addEventListener('click',e=>{unlock();const b=e.target.closest('[data-a]');if(b)act(b.dataset.a,b.dataset)});
+app.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.id==='nm')act('add')});
+app.addEventListener('change',e=>{
+  const t=e.target,k=t.dataset.k;if(!k)return;
+  if(k==='ng')S.ng=+t.value;
+  else if(k==='mode')S.mode=t.value;
+  else if(k==='n'||k==='t')S.cfg[k]=+t.value;
+  else if(k==='snd'){S.cfg.snd=t.checked;unlock()}
+  else if(k==='man')S.manual[+t.dataset.p]=+t.value;
+  else if(k==='cat'){const all=[...document.querySelectorAll('[data-k=cat]')],on=all.filter(x=>x.checked).map(x=>x.value);S.cfg.cats=on.length===all.length?null:on}
+});
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+render();fetchCats();
+</script>
+</body>
+</html>

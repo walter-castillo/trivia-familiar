@@ -1,0 +1,8 @@
+TRIVIA FAMILIAR - by Walter Castillo
+
+PUBLICAR: en Netlify > Add new site > Deploy manually, arrastrá esta carpeta (o el .zip descomprimido).
+PREGUNTAS: reemplazá preguntas.json por tu banco (mismos campos: id, pregunta, opciones, correcta, categoria, tipo, respuesta). Se consulta online en cada partida.
+ICONOS: reemplazá los PNG de la carpeta icons/ manteniendo nombre y tamaño:
+  icon-192.png (192x192), icon-512.png (512x512), icon-maskable-512.png (512x512, dibujo en el centro),
+  apple-touch-icon.png (180x180), favicon-32.png (32x32).
+Si cambiás archivos de la app, subí la versión de V en sw.js (trivia-v2, v3...) para que se actualice.
